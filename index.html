@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquid Python — редактор</title>
+
+    <!-- 1. Стили CodeMirror 5 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <!-- Тема оформления (можно заменить на свою) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <!-- Стили для плагина ошибок (lint) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/lint/lint.min.css">
+
+    <style>
+        /* ============================================================
+           2. СТИЛИ ДЛЯ ЭФФЕКТА «LIQUID GLASS» (Apple-подобный)
+           ============================================================ */
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --glass-shadow: rgba(0, 0, 0, 0.35);
+            --glass-highlight: rgba(255, 255, 255, 0.25);
+            --text-main: #f8f8f2;
+            --text-muted: #bdc3c7;
+            --accent: #8be9fd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #0d0d1a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Анимированный фон, который будет «просвечивать» сквозь стекло */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -50%;
+            background: radial-gradient(circle at 20% 30%, #5e2a8a 0%, transparent 40%),
+                        radial-gradient(circle at 80% 70%, #1a5f7a 0%, transparent 40%),
+                        radial-gradient(circle at 50% 50%, #3d1f5c 0%, transparent 60%);
+            background-size: 200% 200%;
+            animation: liquidBg 20s ease-in-out infinite alternate;
+            z-index: -1;
+        }
+
+        @keyframes liquidBg {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(5%, 5%) scale(1.1); }
+        }
+
+        /* Основной стеклянный контейнер */
+        .glass-container {
+            width: 100%;
+            max-width: 1000px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(18px) saturate(1.6);
+            -webkit-backdrop-filter: blur(18px) saturate(1.6);
+            border: 1px solid var(--glass-border);
+            border-radius: 28px;
+            box-shadow:
+                inset 0 1px 0 var(--glass-highlight),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+                0 8px 32px var(--glass-shadow);
+            padding: 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: relative;
+        }
+
+        /* Блик на верхней грани стекла (specular highlight) */
+        .glass-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h1 span {
+            background: linear-gradient(135deg, #8be9fd, #bd93f9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-top: -12px;
+        }
+
+        /* Обертка для редактора, чтобы придать ему «стеклянную» рамку */
+        .editor-wrapper {
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid var(--glass-border);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        /* Стилизация самого CodeMirror под стекло */
+        .CodeMirror {
+            height: 420px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 14px;
+            background: rgba(20, 20, 30, 0.5) !important;
+            color: var(--text-main);
+            border: none;
+        }
+
+        .CodeMirror-gutters {
+            background: rgba(255, 255, 255, 0.03) !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .CodeMirror-linenumber {
+            color: var(--text-muted) !important;
+        }
+
+        .CodeMirror-cursor {
+            border-left-color: var(--accent) !important;
+            border-left-width: 2px;
+        }
+
+        /* Панель кнопок */
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        /* Стеклянная кнопка */
+        .glass-button {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 14px;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.3),
+                0 4px 16px rgba(0,0,0,0.2);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .glass-button:hover {
+            background: rgba(255, 255, 255, 0.18);
+            transform: translateY(-1px);
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.4),
+                0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .glass-button:active {
+            transform: translateY(0);
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .glass-button.primary {
+            background: rgba(139, 233, 253, 0.25);
+            border-color: rgba(139, 233, 253, 0.4);
+            color: #e0f7ff;
+        }
+
+        .glass-button.primary:hover {
+            background: rgba(139, 233, 253, 0.35);
+        }
+
+        .glass-button.secondary {
+            font-weight: 500;
+            font-size: 0.9rem;
+            padding: 10px 18px;
+        }
+
+        /* Панель вывода */
+        .output-panel {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 16px 20px;
+            min-height: 80px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .output-panel .success {
+            color: #50fa7b;
+        }
+        .output-panel .error {
+            color: #ff5555;
+        }
+
+        /* Кастомный скроллбар для вывода */
+        .output-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+        .output-panel::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .output-panel::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+        }
+
+        /* Адаптивность */
+        @media (max-width: 600px) {
+            .glass-container { padding: 18px; border-radius: 20px; }
+            h1 { font-size: 1.4rem; }
+            .CodeMirror { height: 300px; }
+            .glass-button { width: 100%; justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glass-container">
+        <h1>
+            🐍 <span>Liquid Python</span>
+        </h1>
+        <p class="subtitle">Пишите код, запускайте его и сразу видьте ошибки — всё в одном стеклянном интерфейсе.</p>
+
+        <!-- Обертка для CodeMirror -->
+        <div class="editor-wrapper">
+            <textarea id="code">
+# Добро пожаловать в Liquid Python!
+# Напишите здесь свой код и нажмите «Выполнить»
+
+def greet(name):
+    return f"Привет, {name}!"
+
+print(greet("мир"))
+print("Проверка ошибок: попробуйте убрать кавычку ниже")
+# print("эта строка вызовет ошибку)
+            </textarea>
+        </div>
+
+        <!-- Панель управления -->
+        <div class="toolbar">
+            <button id="runButton" class="glass-button primary">
+                ▶ Выполнить
+            </button>
+            <button id="clearButton" class="glass-button secondary">
+                🗑 Очистить вывод
+            </button>
+        </div>
+
+        <!-- Панель вывода -->
+        <div id="output" class="output-panel">
+            Здесь появится результат выполнения кода...
+        </div>
+    </div>
+
+    <!-- ============================================================
+         3. ПОДКЛЮЧЕНИЕ СКРИПТОВ
+         ============================================================ -->
+    <!-- CodeMirror 5 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <!-- Режим Python -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+    <!-- Плагин для отображения ошибок (lint) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/lint/lint.min.js"></script>
+
+    <!-- Pyodide (загрузка асинхронная) -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+
+    <script>
+        // ============================================================
+        // 4. ИНИЦИАЛИЗАЦИЯ РЕДАКТОРА
+        // ============================================================
+        const editor = CodeMirror.fromTextArea(document.getElementById("code"), {
+            mode: "python",
+            lineNumbers: true,
+            indentUnit: 4,
+            theme: "dracula",
+            lineWrapping: true,
+            autofocus: true,
+            // Включаем «желоба» для маркеров ошибок
+            gutters: ["CodeMirror-linenumbers", "CodeMirror-lint-markers"],
+            lint: true
+        });
+
+        // ============================================================
+        // 5. ЛОГИКА ВЫПОЛНЕНИЯ И ОБРАБОТКИ ОШИБОК
+        // ============================================================
+        let pyodideReady = false;
+        let pyodide = null;
+        const outputDiv = document.getElementById("output");
+
+        // Асинхронная загрузка Pyodide
+        async function initPyodide() {
+            try {
+                outputDiv.innerHTML = '<span style="color: var(--text-muted);">Загрузка Python-движка (Pyodide)...</span>';
+                pyodide = await loadPyodide();
+                pyodideReady = true;
+                outputDiv.innerHTML = '<span style="color: #50fa7b;">✅ Python-движок готов. Можно выполнять код.</span>';
+            } catch (err) {
+                outputDiv.innerHTML = `<span style="color: #ff5555;">❌ Не удалось загрузить Pyodide: ${err.message}</span>`;
+            }
+        }
+        initPyodide();
+
+        // Функция для отображения ошибок в CodeMirror (lint)
+        function showLintErrors(errors) {
+            editor.setOption("lint", {
+                getAnnotations: () => errors,
+                async: false
+            });
+        }
+
+        // Обработчик кнопки "Выполнить"
+        document.getElementById("runButton").addEventListener("click", async () => {
+            if (!pyodideReady) {
+                outputDiv.innerHTML = '<span style="color: #ffb86c;">⏳ Pyodide ещё загружается. Подождите...</span>';
+                return;
+            }
+
+            const code = editor.getValue();
+            outputDiv.innerHTML = ''; // Очищаем вывод
+            showLintErrors([]); // Сбрасываем старые ошибки в редакторе
+
+            try {
+                // Перенаправляем стандартный вывод (stdout) в нашу панель
+                pyodide.setStdout({
+                    batched: (msg) => {
+                        outputDiv.innerHTML += `<div style="color: #f8f8f2;">${escapeHtml(msg)}</div>`;
+                    }
+                });
+
+                // Перенаправляем stderr (ошибки) тоже в панель
+                pyodide.setStderr({
+                    batched: (msg) => {
+                        outputDiv.innerHTML += `<div style="color: #ff5555;">${escapeHtml(msg)}</div>`;
+                    }
+                });
+
+                // Выполняем код
+                await pyodide.runPythonAsync(code);
+
+                // Если ошибок не было, показываем успех
+                outputDiv.innerHTML += '<div style="color: #50fa7b; margin-top: 8px;">✅ Выполнено без ошибок.</div>';
+
+            } catch (error) {
+                // Разбираем сообщение об ошибке, чтобы найти номер строки
+                const errorMessage = error.message;
+                outputDiv.innerHTML += `<div style="color: #ff5555; margin-top: 8px;">❌ Ошибка выполнения:</div>`;
+                outputDiv.innerHTML += `<div style="color: #ffb86c;">${escapeHtml(errorMessage)}</div>`;
+
+                // Пытаемся извлечь номер строки из текста ошибки Pyodide
+                // Пример: 'File "<exec>", line 5, in <module>'
+                const lineMatch = errorMessage.match(/line (\d+)/);
+                if (lineMatch) {
+                    const lineNumber = parseInt(lineMatch[1], 10) - 1; // CodeMirror считает с 0
+                    if (lineNumber >= 0) {
+                        // Создаем маркер ошибки для CodeMirror
+                        const lintError = {
+                            from: CodeMirror.Pos(lineNumber, 0),
+                            to: CodeMirror.Pos(lineNumber, 80), // Подсвечиваем всю строку
+                            message: errorMessage,
+                            severity: "error"
+                        };
+                        showLintErrors([lintError]);
+                    }
+                }
+            }
+        });
+
+        // Кнопка "Очистить вывод"
+        document.getElementById("clearButton").addEventListener("click", () => {
+            outputDiv.innerHTML = '<span style="color: var(--text-muted);">Вывод очищен.</span>';
+            showLintErrors([]);
+        });
+
+        // Вспомогательная функция для безопасного вывода HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
